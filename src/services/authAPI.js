@@ -1,4 +1,4 @@
-// src/services/authAPI.js
+// src/services/authAPI.js - แก้ให้รองรับ response structure ที่ถูกต้อง
 import { API_ENDPOINTS, ERROR_MESSAGES } from '../utils/constants';
 import { errorUtils } from '../utils/helpers';
 
@@ -52,7 +52,7 @@ const handleResponse = async (response) => {
 
 // Authentication API service
 export const authAPI = {
-  // Login admin user
+  // Login admin user - แก้ให้รองรับ response structure ที่ถูกต้อง
   login: async (credentials) => {
     try {
       if (!credentials.username || !credentials.password) {
@@ -72,15 +72,18 @@ export const authAPI = {
 
       const data = await handleResponse(response);
       
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin
+      const userData = data.user || data.admin;
+      
       // Validate response structure
-      if (!data.token || !data.user) {
+      if (!data.token || !userData) {
         throw new Error('Invalid login response');
       }
 
       return {
         success: true,
         token: data.token,
-        user: data.user,
+        user: userData, // ใช้ userData ที่หาได้
         message: data.message || 'เข้าสู่ระบบสำเร็จ'
       };
     } catch (error) {
@@ -150,10 +153,13 @@ export const authAPI = {
         throw new Error('Invalid refresh response');
       }
 
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin สำหรับ refresh token
+      const userData = data.user || data.admin;
+
       return {
         success: true,
         token: data.token,
-        user: data.user,
+        user: userData,
         message: data.message || 'Token refreshed'
       };
     } catch (error) {
@@ -179,9 +185,12 @@ export const authAPI = {
 
       const data = await handleResponse(response);
       
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin สำหรับ profile
+      const userData = data.user || data.admin;
+      
       return {
         success: true,
-        user: data.user,
+        user: userData,
         message: data.message
       };
     } catch (error) {
@@ -207,10 +216,13 @@ export const authAPI = {
 
       const data = await handleResponse(response);
       
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin สำหรับ verify
+      const userData = data.user || data.admin;
+      
       return {
         success: true,
         valid: data.valid || false,
-        user: data.user,
+        user: userData,
         message: data.message
       };
     } catch (error) {
@@ -241,7 +253,7 @@ export const adminManagementAPI = {
       
       return {
         success: true,
-        users: data.users || [],
+        users: data.users || data.admins || [], // รองรับทั้ง users และ admins
         message: data.message
       };
     } catch (error) {
@@ -264,9 +276,12 @@ export const adminManagementAPI = {
 
       const data = await handleResponse(response);
       
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin
+      const createdUser = data.user || data.admin;
+      
       return {
         success: true,
-        user: data.user,
+        user: createdUser,
         message: data.message || 'สร้างผู้ใช้สำเร็จ'
       };
     } catch (error) {
@@ -289,9 +304,12 @@ export const adminManagementAPI = {
 
       const data = await handleResponse(response);
       
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin
+      const updatedUser = data.user || data.admin;
+      
       return {
         success: true,
-        user: data.user,
+        user: updatedUser,
         message: data.message || 'อัพเดทผู้ใช้สำเร็จ'
       };
     } catch (error) {

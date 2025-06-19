@@ -1,4 +1,4 @@
-// src/contexts/AuthContext.jsx
+// src/contexts/AuthContext.jsx - แก้ปัญหา JWT Malformed
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { storageUtils } from '../utils/helpers';
 import { STORAGE_KEYS } from '../utils/constants';
@@ -25,16 +25,25 @@ export const AuthProvider = ({ children }) => {
       try {
         const savedAuth = storageUtils.get(STORAGE_KEYS.ADMIN_AUTH);
         if (savedAuth && savedAuth.token && savedAuth.user) {
-          // Check if token is not expired (simple check)
-          const tokenData = parseJWT(savedAuth.token);
-          if (tokenData && tokenData.exp > Date.now() / 1000) {
-            setUser(savedAuth.user);
-            setToken(savedAuth.token);
-            setIsAuthenticated(true);
+          // ✅ FIX: ตรวจสอบ token format ก่อนใช้
+          if (typeof savedAuth.token === 'string' && savedAuth.token.trim().length > 0) {
+            // Check if token is not expired (simple check)
+            const tokenData = parseJWT(savedAuth.token);
+            if (tokenData && tokenData.exp > Date.now() / 1000) {
+              setUser(savedAuth.user);
+              setToken(savedAuth.token);
+              setIsAuthenticated(true);
+              console.log('✅ Auth initialized successfully with token:', savedAuth.token.substring(0, 20) + '...');
+            } else {
+              console.log('❌ Token expired, clearing auth');
+              logout();
+            }
           } else {
-            // Token expired, clear storage
+            console.log('❌ Invalid token format, clearing auth');
             logout();
           }
+        } else {
+          console.log('ℹ️ No saved auth found');
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
@@ -50,22 +59,37 @@ export const AuthProvider = ({ children }) => {
   // Parse JWT token (simple implementation)
   const parseJWT = (token) => {
     try {
-      const base64Url = token.split('.')[1];
+      if (!token || typeof token !== 'string') {
+        console.log('❌ Invalid token type:', typeof token);
+        return null;
+      }
+
+      const tokenParts = token.split('.');
+      if (tokenParts.length !== 3) {
+        console.log('❌ Invalid token format - parts:', tokenParts.length);
+        return null;
+      }
+
+      const base64Url = tokenParts[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
       const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
         return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
       }).join(''));
-      return JSON.parse(jsonPayload);
+      
+      const payload = JSON.parse(jsonPayload);
+      console.log('✅ JWT parsed successfully:', { exp: payload.exp, iat: payload.iat });
+      return payload;
     } catch (error) {
-      console.error('Error parsing JWT:', error);
+      console.error('❌ Error parsing JWT:', error);
       return null;
     }
   };
 
-  // Login function
+  // Login function - แก้ให้รองรับ response structure ที่ถูกต้อง
   const login = async (credentials) => {
     try {
       setIsLoading(true);
+      console.log('🔑 Attempting login for:', credentials.username);
       
       // API call to login endpoint
       const response = await fetch('/api/admin/login', {
@@ -77,15 +101,24 @@ export const AuthProvider = ({ children }) => {
       });
 
       const data = await response.json();
+      console.log('📋 Login response:', { success: data.success, hasToken: !!data.token, hasUser: !!(data.user || data.admin) });
 
       if (!response.ok) {
         throw new Error(data.message || 'Login failed');
       }
 
-      if (data.success && data.token && data.user) {
+      // ✅ FIX: รองรับทั้ง data.user และ data.admin
+      const userData = data.user || data.admin;
+      
+      if (data.success && data.token && userData) {
+        // ✅ FIX: ตรวจสอบ token format ก่อนเก็บ
+        if (typeof data.token !== 'string' || data.token.trim().length === 0) {
+          throw new Error('Invalid token format received');
+        }
+
         const authData = {
-          token: data.token,
-          user: data.user,
+          token: data.token.trim(), // ตัด whitespace
+          user: userData,
           loginTime: Date.now()
         };
 
@@ -93,16 +126,17 @@ export const AuthProvider = ({ children }) => {
         storageUtils.set(STORAGE_KEYS.ADMIN_AUTH, authData);
         
         // Update state
-        setUser(data.user);
-        setToken(data.token);
+        setUser(userData);
+        setToken(data.token.trim());
         setIsAuthenticated(true);
 
-        return { success: true, user: data.user };
+        console.log('✅ Login successful for:', userData.username);
+        return { success: true, user: userData };
       } else {
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       return { 
         success: false, 
         error: error.message || 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' 
@@ -115,6 +149,8 @@ export const AuthProvider = ({ children }) => {
   // Logout function
   const logout = () => {
     try {
+      console.log('🚪 Logging out user');
+      
       // Clear localStorage
       storageUtils.remove(STORAGE_KEYS.ADMIN_AUTH);
       
@@ -158,19 +194,38 @@ export const AuthProvider = ({ children }) => {
     return user && ['super_admin', 'admin', 'moderator'].includes(user.role);
   };
 
-  // Get authorization header for API calls
+  // ✅ FIX: แก้ไข getAuthHeader ให้ส่ง format ที่ถูกต้อง
   const getAuthHeader = () => {
-    if (!token) return {};
+    if (!token) {
+      console.log('❌ No token available for auth header');
+      return {};
+    }
+
+    // ตรวจสอบ token format
+    if (typeof token !== 'string' || token.trim().length === 0) {
+      console.log('❌ Invalid token format for auth header:', typeof token);
+      logout(); // logout ถ้า token เสียหาย
+      return {};
+    }
+
+    const cleanToken = token.trim();
+    console.log('🔑 Creating auth header with token:', cleanToken.substring(0, 20) + '...');
+    
     return {
-      'Authorization': `Bearer ${token}`
+      'Authorization': `Bearer ${cleanToken}`
     };
   };
 
   // Refresh token function (optional)
   const refreshToken = async () => {
     try {
-      if (!token) return false;
+      if (!token) {
+        console.log('❌ No token for refresh');
+        return false;
+      }
 
+      console.log('🔄 Refreshing token...');
+      
       const response = await fetch('/api/admin/refresh', {
         method: 'POST',
         headers: {
@@ -182,14 +237,30 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
 
       if (response.ok && data.token) {
-        const authData = storageUtils.get(STORAGE_KEYS.ADMIN_AUTH) || {};
-        authData.token = data.token;
-        storageUtils.set(STORAGE_KEYS.ADMIN_AUTH, authData);
-        setToken(data.token);
-        return true;
+        // ✅ FIX: ตรวจสอบ token format ก่อนเก็บ
+        if (typeof data.token === 'string' && data.token.trim().length > 0) {
+          const authData = storageUtils.get(STORAGE_KEYS.ADMIN_AUTH) || {};
+          authData.token = data.token.trim();
+          
+          // รองรับทั้ง data.user และ data.admin สำหรับ refresh
+          const userData = data.user || data.admin;
+          if (userData) {
+            authData.user = userData;
+            setUser(userData);
+          }
+          
+          storageUtils.set(STORAGE_KEYS.ADMIN_AUTH, authData);
+          setToken(data.token.trim());
+          
+          console.log('✅ Token refreshed successfully');
+          return true;
+        } else {
+          console.log('❌ Invalid refresh token format');
+          return false;
+        }
       }
     } catch (error) {
-      console.error('Token refresh failed:', error);
+      console.error('❌ Token refresh failed:', error);
     }
     return false;
   };
@@ -205,14 +276,17 @@ export const AuthProvider = ({ children }) => {
         const currentTime = Date.now();
         const timeUntilExpiry = expiryTime - currentTime;
 
+        console.log('⏰ Token expires in:', Math.round(timeUntilExpiry / 1000 / 60), 'minutes');
+
         // If token expires in less than 5 minutes, try to refresh
         if (timeUntilExpiry < 5 * 60 * 1000 && timeUntilExpiry > 0) {
+          console.log('🔄 Token expiring soon, attempting refresh...');
           refreshToken().catch(() => {
-            // If refresh fails, logout
+            console.log('❌ Auto-refresh failed, logging out');
             logout();
           });
         } else if (timeUntilExpiry <= 0) {
-          // Token already expired
+          console.log('❌ Token expired, logging out');
           logout();
         }
       }

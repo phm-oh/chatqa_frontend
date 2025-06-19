@@ -1,4 +1,4 @@
-// pages/Admin/Admin.jsx (Updated) - ฉบับสมบูรณ์
+// pages/Admin/Admin.jsx - แก้ปัญหา JWT Error และ Modal ค้าง
 import React, { useState, useEffect } from 'react';
 import './Admin.css';
 import Loading, { LoadingCard } from '../../components/common/Loading/Loading';
@@ -8,7 +8,7 @@ import { TOAST_TYPES, QUESTION_STATUS, QUESTION_STATUS_OPTIONS, QUESTION_CATEGOR
 import { useAuth } from '../../contexts/AuthContext';
 
 const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
-  const { hasPermission, getAuthHeader } = useAuth();
+  const { hasPermission, getAuthHeader, isAuthenticated, token } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardStats, setDashboardStats] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -22,9 +22,22 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
   });
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // เพิ่ม state สำหรับ submit
   const [pagination, setPagination] = useState({});
 
+  // ✅ FIX: เพิ่มฟังก์ชันตรวจสอบ auth state
+  const checkAuthState = () => {
+    if (!isAuthenticated || !token) {
+      showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
+      onLogout();
+      return false;
+    }
+    return true;
+  };
+
   useEffect(() => {
+    if (!checkAuthState()) return;
+    
     if (activeTab === 'dashboard') {
       loadDashboardStats();
     } else {
@@ -33,23 +46,39 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
   }, [activeTab, filters]);
 
   const loadDashboardStats = async () => {
-    if (!isOnline || apiStatus !== 'healthy') {
+    if (!isOnline || apiStatus !== 'healthy' || !checkAuthState()) {
       setIsLoading(false);
       return;
     }
 
     try {
       setIsLoading(true);
-      const response = await questionAPI.getStats(getAuthHeader());
-      if (response.success) {
-        setDashboardStats(response.data);
-      }
-    } catch (error) {
-      if (error.status === 401) {
+      
+      // ✅ FIX: ใช้ fetch แทน questionAPI.getStats และส่ง headers ที่ถูกต้อง
+      const authHeaders = getAuthHeader();
+      const response = await fetch('/api/questions/stats/dashboard', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        }
+      });
+
+      if (response.status === 401) {
         showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
         onLogout();
         return;
       }
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setDashboardStats(data.data);
+      } else {
+        throw new Error(data.message || 'Failed to load dashboard stats');
+      }
+    } catch (error) {
+      console.error('Dashboard stats error:', error);
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     } finally {
       setIsLoading(false);
@@ -57,27 +86,48 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
   };
 
   const loadQuestions = async () => {
-    if (!isOnline || apiStatus !== 'healthy') {
+    if (!isOnline || apiStatus !== 'healthy' || !checkAuthState()) {
       setIsLoading(false);
       return;
     }
 
     try {
       setIsLoading(true);
-      const response = await questionAPI.getAll({
-        ...filters,
-        headers: getAuthHeader()
+      
+      // ✅ FIX: ใช้ fetch แทน questionAPI.getAll และส่ง headers ที่ถูกต้อง
+      const authHeaders = getAuthHeader();
+      const queryParams = new URLSearchParams();
+      
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== '' && value !== null && value !== undefined) {
+          queryParams.append(key, value);
+        }
       });
-      if (response.success) {
-        setQuestions(response.data);
-        setPagination(response.pagination);
-      }
-    } catch (error) {
-      if (error.status === 401) {
+
+      const response = await fetch(`/api/questions?${queryParams.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        }
+      });
+
+      if (response.status === 401) {
         showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
         onLogout();
         return;
       }
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setQuestions(data.data || []);
+        setPagination(data.pagination || {});
+      } else {
+        throw new Error(data.message || 'Failed to load questions');
+      }
+    } catch (error) {
+      console.error('Load questions error:', error);
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     } finally {
       setIsLoading(false);
@@ -94,6 +144,8 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
       return;
     }
 
+    if (!checkAuthState()) return;
+
     setEditingQuestion({
       ...question,
       answer: question.answer || '',
@@ -105,31 +157,63 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
     setIsModalOpen(true);
   };
 
+  // ✅ FIX: แก้ไขฟังก์ชัน handleUpdateQuestion ให้ handle error และปิด modal ถูกต้อง
   const handleUpdateQuestion = async (formData) => {
     if (!hasPermission('edit')) {
       showToast('คุณไม่มีสิทธิ์แก้ไขคำถาม', TOAST_TYPES.ERROR);
       return;
     }
 
+    if (!checkAuthState()) return;
+
+    setIsSubmitting(true);
+
     try {
-      const response = await questionAPI.update(editingQuestion._id, {
-        ...formData,
-        headers: getAuthHeader()
-      });
+      const authHeaders = getAuthHeader();
       
-      if (response.success) {
-        showToast(SUCCESS_MESSAGES.QUESTION_UPDATED, TOAST_TYPES.SUCCESS);
-        setIsModalOpen(false);
-        setEditingQuestion(null);
-        loadQuestions();
-      }
-    } catch (error) {
-      if (error.status === 401) {
+      // ✅ FIX: Debug log เพื่อตรวจสอบ token
+      console.log('Auth headers:', authHeaders);
+      console.log('Token exists:', !!token);
+      console.log('Question ID:', editingQuestion._id);
+
+      const response = await fetch(`/api/questions/${editingQuestion._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify(formData)
+      });
+
+      console.log('Response status:', response.status);
+
+      if (response.status === 401) {
         showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
+        setIsModalOpen(false); // ✅ ปิด modal ก่อน logout
+        setEditingQuestion(null);
         onLogout();
         return;
       }
+
+      const data = await response.json();
+      console.log('Response data:', data);
+      
+      if (response.ok && data.success) {
+        showToast(SUCCESS_MESSAGES.QUESTION_UPDATED || 'อัพเดทคำถามสำเร็จ', TOAST_TYPES.SUCCESS);
+        setIsModalOpen(false);
+        setEditingQuestion(null);
+        loadQuestions(); // reload questions
+      } else {
+        throw new Error(data.message || 'Failed to update question');
+      }
+    } catch (error) {
+      console.error('Update question error:', error);
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
+    } finally {
+      setIsSubmitting(false);
+      // ✅ FIX: บังคับปิด modal ในกรณีที่เกิด error
+      setIsModalOpen(false);
+      setEditingQuestion(null);
     }
   };
 
@@ -139,22 +223,46 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
       return;
     }
 
+    if (!checkAuthState()) return;
+
     if (!confirm('คุณแน่ใจหรือไม่ที่จะลบคำถามนี้?')) return;
 
     try {
-      const response = await questionAPI.delete(id, getAuthHeader());
-      if (response.success) {
-        showToast(SUCCESS_MESSAGES.QUESTION_DELETED, TOAST_TYPES.SUCCESS);
-        loadQuestions();
-      }
-    } catch (error) {
-      if (error.status === 401) {
+      const authHeaders = getAuthHeader();
+      
+      const response = await fetch(`/api/questions/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        }
+      });
+
+      if (response.status === 401) {
         showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
         onLogout();
         return;
       }
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        showToast(SUCCESS_MESSAGES.QUESTION_DELETED || 'ลบคำถามสำเร็จ', TOAST_TYPES.SUCCESS);
+        loadQuestions();
+      } else {
+        throw new Error(data.message || 'Failed to delete question');
+      }
+    } catch (error) {
+      console.error('Delete question error:', error);
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     }
+  };
+
+  // ✅ FIX: เพิ่มฟังก์ชันปิด modal แบบ force
+  const handleCloseModal = () => {
+    if (isSubmitting) return; // ห้ามปิดขณะ submit
+    setIsModalOpen(false);
+    setEditingQuestion(null);
   };
 
   const renderAdminHeader = () => (
@@ -415,11 +523,17 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
     if (!isModalOpen || !editingQuestion) return null;
 
     return (
-      <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+      <div className="modal-overlay" onClick={handleCloseModal}>
         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h3>✏️ แก้ไขคำถาม</h3>
-            <button className="modal-close" onClick={() => setIsModalOpen(false)}>×</button>
+            <button 
+              className="modal-close" 
+              onClick={handleCloseModal}
+              disabled={isSubmitting}
+            >
+              ×
+            </button>
           </div>
 
           <form onSubmit={(e) => {
@@ -448,6 +562,7 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
                   rows="5"
                   className="form-control"
                   required
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -459,6 +574,7 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
                     name="status"
                     defaultValue={editingQuestion.status}
                     className="form-control"
+                    disabled={isSubmitting}
                   >
                     {QUESTION_STATUS_OPTIONS.map(option => (
                       <option key={option.value} value={option.value}>
@@ -476,6 +592,7 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
                     name="answeredBy"
                     defaultValue={editingQuestion.answeredBy}
                     className="form-control"
+                    disabled={isSubmitting}
                   />
                 </div>
               </div>
@@ -487,6 +604,7 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
                       type="checkbox"
                       name="showInFAQ"
                       defaultChecked={editingQuestion.showInFAQ}
+                      disabled={isSubmitting}
                     />
                     แสดงใน FAQ
                   </label>
@@ -502,16 +620,30 @@ const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
                   rows="3"
                   className="form-control"
                   placeholder="หมายเหตุสำหรับผู้ดูแล..."
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
 
             <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleCloseModal}
+                disabled={isSubmitting}
+              >
                 ยกเลิก
               </button>
-              <button type="submit" className="btn btn-primary">
-                💾 บันทึก
+              <button 
+                type="submit" 
+                className="btn btn-primary"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>🔄 กำลังบันทึก...</>
+                ) : (
+                  <>💾 บันทึก</>
+                )}
               </button>
             </div>
           </form>
