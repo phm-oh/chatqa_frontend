@@ -1,11 +1,14 @@
+// pages/Admin/Admin.jsx (Updated) - ฉบับสมบูรณ์
 import React, { useState, useEffect } from 'react';
-import './Admin.css'; // เปลี่ยนจาก module เป็น CSS ปกติ
+import './Admin.css';
 import Loading, { LoadingCard } from '../../components/common/Loading/Loading';
 import { questionAPI } from '../../services/api';
 import { errorUtils, dateUtils, validationUtils, questionUtils } from '../../utils/helpers';
 import { TOAST_TYPES, QUESTION_STATUS, QUESTION_STATUS_OPTIONS, QUESTION_CATEGORIES, SUCCESS_MESSAGES, ADMIN_CONSTANTS } from '../../utils/constants';
+import { useAuth } from '../../contexts/AuthContext';
 
-const Admin = ({ showToast, isOnline, apiStatus }) => {
+const Admin = ({ showToast, isOnline, apiStatus, user, onLogout }) => {
+  const { hasPermission, getAuthHeader } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardStats, setDashboardStats] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -37,11 +40,16 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
 
     try {
       setIsLoading(true);
-      const response = await questionAPI.getStats();
+      const response = await questionAPI.getStats(getAuthHeader());
       if (response.success) {
         setDashboardStats(response.data);
       }
     } catch (error) {
+      if (error.status === 401) {
+        showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
+        onLogout();
+        return;
+      }
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     } finally {
       setIsLoading(false);
@@ -56,12 +64,20 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
 
     try {
       setIsLoading(true);
-      const response = await questionAPI.getAll(filters);
+      const response = await questionAPI.getAll({
+        ...filters,
+        headers: getAuthHeader()
+      });
       if (response.success) {
         setQuestions(response.data);
         setPagination(response.pagination);
       }
     } catch (error) {
+      if (error.status === 401) {
+        showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
+        onLogout();
+        return;
+      }
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     } finally {
       setIsLoading(false);
@@ -73,20 +89,34 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
   };
 
   const handleEditQuestion = (question) => {
+    if (!hasPermission('edit')) {
+      showToast('คุณไม่มีสิทธิ์แก้ไขคำถาม', TOAST_TYPES.ERROR);
+      return;
+    }
+
     setEditingQuestion({
       ...question,
       answer: question.answer || '',
       status: question.status || QUESTION_STATUS.PENDING,
       showInFAQ: question.showInFAQ || false,
-      answeredBy: question.answeredBy || ADMIN_CONSTANTS.DEFAULT_ANSWERER,
+      answeredBy: question.answeredBy || user?.username || ADMIN_CONSTANTS.DEFAULT_ANSWERER,
       adminNotes: question.adminNotes || ''
     });
     setIsModalOpen(true);
   };
 
   const handleUpdateQuestion = async (formData) => {
+    if (!hasPermission('edit')) {
+      showToast('คุณไม่มีสิทธิ์แก้ไขคำถาม', TOAST_TYPES.ERROR);
+      return;
+    }
+
     try {
-      const response = await questionAPI.update(editingQuestion._id, formData);
+      const response = await questionAPI.update(editingQuestion._id, {
+        ...formData,
+        headers: getAuthHeader()
+      });
+      
       if (response.success) {
         showToast(SUCCESS_MESSAGES.QUESTION_UPDATED, TOAST_TYPES.SUCCESS);
         setIsModalOpen(false);
@@ -94,23 +124,82 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
         loadQuestions();
       }
     } catch (error) {
+      if (error.status === 401) {
+        showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
+        onLogout();
+        return;
+      }
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     }
   };
 
   const handleDeleteQuestion = async (id) => {
+    if (!hasPermission('delete')) {
+      showToast('คุณไม่มีสิทธิ์ลบคำถาม', TOAST_TYPES.ERROR);
+      return;
+    }
+
     if (!confirm('คุณแน่ใจหรือไม่ที่จะลบคำถามนี้?')) return;
 
     try {
-      const response = await questionAPI.delete(id);
+      const response = await questionAPI.delete(id, getAuthHeader());
       if (response.success) {
         showToast(SUCCESS_MESSAGES.QUESTION_DELETED, TOAST_TYPES.SUCCESS);
         loadQuestions();
       }
     } catch (error) {
+      if (error.status === 401) {
+        showToast('กรุณาเข้าสู่ระบบใหม่', TOAST_TYPES.ERROR);
+        onLogout();
+        return;
+      }
       showToast(errorUtils.parseError(error), TOAST_TYPES.ERROR);
     }
   };
+
+  const renderAdminHeader = () => (
+    <div className="admin-header">
+      <div className="admin-header-content">
+        <div className="admin-title-section">
+          <h1>⚙️ จัดการระบบ</h1>
+          <div className="admin-user-info">
+            <span className="user-greeting">
+              👋 สวัสดี <strong>{user?.username || 'ผู้ดูแล'}</strong>
+            </span>
+            <span className="user-role">
+              {user?.role === 'super_admin' && '👑 Super Admin'}
+              {user?.role === 'admin' && '🛡️ Admin'}
+              {user?.role === 'moderator' && '⭐ Moderator'}
+            </span>
+          </div>
+        </div>
+        
+        <div className="admin-actions">
+          <button 
+            className="btn btn-secondary"
+            onClick={onLogout}
+          >
+            🚪 ออกจากระบบ
+          </button>
+        </div>
+      </div>
+      
+      <div className="admin-tabs">
+        <button
+          className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+          onClick={() => setActiveTab('dashboard')}
+        >
+          📊 ภาพรวม
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'questions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('questions')}
+        >
+          📝 จัดการคำถาม
+        </button>
+      </div>
+    </div>
+  );
 
   const renderDashboard = () => {
     if (isLoading) {
@@ -123,7 +212,16 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
       );
     }
 
-    if (!dashboardStats) return null;
+    if (!dashboardStats) {
+      return (
+        <div className="no-data">
+          <p>ไม่สามารถโหลดข้อมูลสถิติได้</p>
+          <button className="btn btn-primary" onClick={loadDashboardStats}>
+            ลองใหม่
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div className="dashboard">
@@ -131,7 +229,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
           <div className="stat-card total">
             <div className="stat-icon">📊</div>
             <div className="stat-content">
-              <div className="stat-number">{dashboardStats.overview.total}</div>
+              <div className="stat-number">{dashboardStats.overview?.total || 0}</div>
               <div className="stat-label">คำถามทั้งหมด</div>
             </div>
           </div>
@@ -139,7 +237,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
           <div className="stat-card pending">
             <div className="stat-icon">⏳</div>
             <div className="stat-content">
-              <div className="stat-number">{dashboardStats.overview.pending}</div>
+              <div className="stat-number">{dashboardStats.overview?.pending || 0}</div>
               <div className="stat-label">รอตอบ</div>
             </div>
           </div>
@@ -147,7 +245,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
           <div className="stat-card answered">
             <div className="stat-icon">✅</div>
             <div className="stat-content">
-              <div className="stat-number">{dashboardStats.overview.answered}</div>
+              <div className="stat-number">{dashboardStats.overview?.answered || 0}</div>
               <div className="stat-label">ตอบแล้ว</div>
             </div>
           </div>
@@ -155,7 +253,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
           <div className="stat-card published">
             <div className="stat-icon">🌟</div>
             <div className="stat-content">
-              <div className="stat-number">{dashboardStats.overview.published}</div>
+              <div className="stat-number">{dashboardStats.overview?.published || 0}</div>
               <div className="stat-label">เผยแพร่แล้ว</div>
             </div>
           </div>
@@ -163,23 +261,25 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
           <div className="stat-card faq">
             <div className="stat-icon">❓</div>
             <div className="stat-content">
-              <div className="stat-number">{dashboardStats.overview.faq}</div>
+              <div className="stat-number">{dashboardStats.overview?.faq || 0}</div>
               <div className="stat-label">FAQ</div>
             </div>
           </div>
         </div>
 
-        <div className="category-stats">
-          <h3>สถิติตามหมวดหมู่</h3>
-          <div className="category-grid">
-            {dashboardStats.categoryStats.map(stat => (
-              <div key={stat.category} className="category-stat">
-                <div className="category-name">{stat.category}</div>
-                <div className="category-count">{stat.count}</div>
-              </div>
-            ))}
+        {dashboardStats.categoryStats && dashboardStats.categoryStats.length > 0 && (
+          <div className="category-stats">
+            <h3>สถิติตามหมวดหมู่</h3>
+            <div className="category-grid">
+              {dashboardStats.categoryStats.map(stat => (
+                <div key={stat.category} className="category-stat">
+                  <div className="category-name">{stat.category}</div>
+                  <div className="category-count">{stat.count}</div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -230,50 +330,61 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
 
         {/* Question List */}
         <div className="question-list">
-          {questions.map(question => (
-            <div key={question._id} className="question-item">
-              <div className="question-header">
-                <div className="question-info">
-                  <h4>{question.name}</h4>
-                  <span className="question-email">{question.email}</span>
-                  <span className="question-date">
-                    {dateUtils.formatDate(question.dateCreated, 'DD/MM/YYYY HH:mm')}
-                  </span>
-                </div>
-                
-                <div className="question-meta">
-                  <span className={`status-badge ${questionUtils.getStatusColor(question.status)}`}>
-                    {question.status}
-                  </span>
-                  <span className="category-badge">{question.category}</span>
-                </div>
-              </div>
-
-              <div className="question-content">
-                <p className="question-text">{question.question}</p>
-                {question.answer && (
-                  <div className="answer-preview">
-                    <strong>คำตอบ:</strong> {question.answer.substring(0, 100)}...
-                  </div>
-                )}
-              </div>
-
-              <div className="question-actions">
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => handleEditQuestion(question)}
-                >
-                  แก้ไข
-                </button>
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={() => handleDeleteQuestion(question._id)}
-                >
-                  ลบ
-                </button>
-              </div>
+          {questions.length === 0 ? (
+            <div className="no-data">
+              <p>ไม่พบคำถามตามเงื่อนไขที่กำหนด</p>
             </div>
-          ))}
+          ) : (
+            questions.map(question => (
+              <div key={question._id} className="question-item">
+                <div className="question-header">
+                  <div className="question-info">
+                    <h4>{question.name}</h4>
+                    <span className="question-email">{question.email}</span>
+                    <span className="question-date">
+                      {dateUtils.formatDate(question.dateCreated, 'DD/MM/YYYY HH:mm')}
+                    </span>
+                  </div>
+                  
+                  <div className="question-meta">
+                    <span className={`status-badge ${questionUtils.getStatusColor(question.status)}`}>
+                      {question.status}
+                    </span>
+                    <span className="category-badge">{question.category}</span>
+                  </div>
+                </div>
+
+                <div className="question-content">
+                  <p className="question-text">{question.question}</p>
+                  {question.answer && (
+                    <div className="answer-preview">
+                      <strong>คำตอบ:</strong> {question.answer.substring(0, 100)}
+                      {question.answer.length > 100 && '...'}
+                    </div>
+                  )}
+                </div>
+
+                <div className="question-actions">
+                  {hasPermission('edit') && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleEditQuestion(question)}
+                    >
+                      ✏️ แก้ไข
+                    </button>
+                  )}
+                  {hasPermission('delete') && (
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={() => handleDeleteQuestion(question._id)}
+                    >
+                      🗑️ ลบ
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Pagination */}
@@ -284,7 +395,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
               onClick={() => handleFilterChange('page', filters.page - 1)}
               disabled={filters.page === 1}
             >
-              ก่อนหน้า
+              ◀ ก่อนหน้า
             </button>
             <span>หน้า {filters.page} จาก {pagination.pages}</span>
             <button
@@ -292,7 +403,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
               onClick={() => handleFilterChange('page', filters.page + 1)}
               disabled={filters.page === pagination.pages}
             >
-              ถัดไป
+              ถัดไป ▶
             </button>
           </div>
         )}
@@ -307,7 +418,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
       <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
-            <h3>แก้ไขคำถาม</h3>
+            <h3>✏️ แก้ไขคำถาม</h3>
             <button className="modal-close" onClick={() => setIsModalOpen(false)}>×</button>
           </div>
 
@@ -369,16 +480,18 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    name="showInFAQ"
-                    defaultChecked={editingQuestion.showInFAQ}
-                  />
-                  แสดงใน FAQ
-                </label>
-              </div>
+              {hasPermission('publish') && (
+                <div className="form-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      name="showInFAQ"
+                      defaultChecked={editingQuestion.showInFAQ}
+                    />
+                    แสดงใน FAQ
+                  </label>
+                </div>
+              )}
 
               <div className="form-group">
                 <label htmlFor="adminNotes">หมายเหตุ</label>
@@ -388,6 +501,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
                   defaultValue={editingQuestion.adminNotes}
                   rows="3"
                   className="form-control"
+                  placeholder="หมายเหตุสำหรับผู้ดูแล..."
                 />
               </div>
             </div>
@@ -397,7 +511,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
                 ยกเลิก
               </button>
               <button type="submit" className="btn btn-primary">
-                บันทึก
+                💾 บันทึก
               </button>
             </div>
           </form>
@@ -409,23 +523,7 @@ const Admin = ({ showToast, isOnline, apiStatus }) => {
   return (
     <div className="admin-page">
       <div className="container">
-        <div className="admin-header">
-          <h1>⚙️ จัดการระบบ</h1>
-          <div className="admin-tabs">
-            <button
-              className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setActiveTab('dashboard')}
-            >
-              📊 ภาพรวม
-            </button>
-            <button
-              className={`tab-btn ${activeTab === 'questions' ? 'active' : ''}`}
-              onClick={() => setActiveTab('questions')}
-            >
-              📝 จัดการคำถาม
-            </button>
-          </div>
-        </div>
+        {renderAdminHeader()}
 
         <div className="admin-content">
           {activeTab === 'dashboard' ? renderDashboard() : renderQuestionList()}

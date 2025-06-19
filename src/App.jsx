@@ -1,3 +1,4 @@
+// App.jsx (Updated)
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import './styles/global.css';
@@ -12,20 +13,28 @@ import Header from './components/common/Header/Header';
 import Footer from './components/common/Footer/Footer';
 import Toast from './components/common/Toast/Toast';
 import Loading from './components/common/Loading/Loading';
+import LoginModal from './components/common/LoginModal/LoginModal';
 
 // Import services and utilities
 import { healthAPI } from './services/api';
 import { errorUtils } from './utils/helpers';
 import { TOAST_TYPES } from './utils/constants';
 
-// App component
-const App = () => {
+// Import Auth Context
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+
+// Main App component (inside AuthProvider)
+const AppContent = () => {
   // State management
   const [currentPage, setCurrentPage] = useState('home');
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [apiStatus, setApiStatus] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
+  // Auth context
+  const { isAuthenticated, isAdmin, user, logout } = useAuth();
 
   // Initialize app
   useEffect(() => {
@@ -102,10 +111,43 @@ const App = () => {
     setCurrentPage(hash);
   };
 
-  // Navigation function
+  // Navigation function with authentication check
   const navigateTo = (page) => {
+    // Check if trying to access admin page
+    if (page === 'admin') {
+      if (!isAuthenticated || !isAdmin()) {
+        // Show login modal if not authenticated or not admin
+        setIsLoginModalOpen(true);
+        return;
+      }
+    }
+    
     window.location.hash = page;
     setCurrentPage(page);
+  };
+
+  // Handle successful login
+  const handleLoginSuccess = (loggedInUser) => {
+    setIsLoginModalOpen(false);
+    
+    // Check if user can access admin
+    if (loggedInUser && ['super_admin', 'admin', 'moderator'].includes(loggedInUser.role)) {
+      // Navigate to admin page after successful login
+      window.location.hash = 'admin';
+      setCurrentPage('admin');
+      showToast(`ยินดีต้อนรับ ${loggedInUser.username}!`, TOAST_TYPES.SUCCESS);
+    } else {
+      showToast('คุณไม่มีสิทธิ์เข้าถึงหน้าจัดการระบบ', TOAST_TYPES.ERROR);
+    }
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    logout();
+    if (currentPage === 'admin') {
+      navigateTo('home');
+    }
+    showToast('ออกจากระบบเรียบร้อยแล้ว', TOAST_TYPES.SUCCESS);
   };
 
   // Toast management
@@ -136,7 +178,7 @@ const App = () => {
     showToast('เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณารีเฟรชหน้าเว็บ', TOAST_TYPES.ERROR);
   };
 
-  // Render current page
+  // Render current page with auth protection
   const renderCurrentPage = () => {
     const pageProps = {
       showToast,
@@ -151,7 +193,27 @@ const App = () => {
       case 'faq':
         return <FAQ {...pageProps} />;
       case 'admin':
-        return <Admin {...pageProps} />;
+        // Check authentication for admin page
+        if (!isAuthenticated || !isAdmin()) {
+          // If not authenticated, show login prompt
+          return (
+            <div className="admin-access-denied">
+              <div className="container">
+                <div className="access-denied-content">
+                  <h2>🔐 จำเป็นต้องเข้าสู่ระบบ</h2>
+                  <p>หน้านี้สำหรับผู้ดูแลระบบเท่านั้น</p>
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => setIsLoginModalOpen(true)}
+                  >
+                    เข้าสู่ระบบ
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return <Admin {...pageProps} user={user} onLogout={handleLogout} />;
       default:
         return <Home {...pageProps} />;
     }
@@ -174,6 +236,9 @@ const App = () => {
         onNavigate={navigateTo}
         isOnline={isOnline}
         apiStatus={apiStatus}
+        isAuthenticated={isAuthenticated}
+        user={user}
+        onLogout={handleLogout}
       />
 
       {/* Main content */}
@@ -212,6 +277,14 @@ const App = () => {
 
       {/* Footer */}
       <Footer />
+
+      {/* Login Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onSuccess={handleLoginSuccess}
+        showToast={showToast}
+      />
 
       {/* Toast notifications */}
       <div className="toast-container">
@@ -281,11 +354,13 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
-// Main App with Error Boundary
-const AppWithErrorBoundary = () => (
+// Main App with AuthProvider and Error Boundary
+const AppWithProviders = () => (
   <AppErrorBoundary>
-    <App />
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   </AppErrorBoundary>
 );
 
-export default AppWithErrorBoundary;
+export default AppWithProviders;
