@@ -40,8 +40,9 @@ jobs:
           type=ref,event=pr
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value={{date 'YYYYMMDD-HHmmss'}},enable={{is_default_branch}}
 
-    # ⭐ แก้ Build Step ให้ถูกต้อง
+    # ⭐ Build แล้ว force ไม่ใช้ cache + unique tag
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
@@ -55,8 +56,9 @@ jobs:
         build-args: |
           REACT_APP_ENV=production
           REACT_APP_APP_NAME=ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี
+          BUILD_TIME=${{ github.run_number }}
 
-    # 2. ⭐ Auto Deploy ไปยัง Production Server (เฉพาะ main branch)
+    # 2. ⭐ แก้ไข Deploy Script ให้ restart อย่างถูกต้อง
     - name: Deploy to Production Server
       if: github.ref == 'refs/heads/main'
       uses: appleboy/ssh-action@v1.0.0
@@ -72,18 +74,37 @@ jobs:
           echo "📡 Syncing deployment config from GitHub..."
           git pull origin main
           
-          # Deploy เฉพาะ frontend
-          echo "🔽 Pulling latest frontend image..."
-          docker-compose -f docker-compose.prod.yml pull frontend
+          # ⭐ หยุด containers ก่อน (แก้ conflict)
+          echo "🛑 Stopping existing containers..."
+          docker-compose -f docker-compose.prod.yml down
           
-          echo "🚀 Restarting frontend service..."
-          docker-compose -f docker-compose.prod.yml up -d frontend
+          # ⭐ ลบ old images เพื่อให้แน่ใจว่าจะ pull ใหม่
+          echo "🗑️ Cleaning old images..."
+          docker image prune -f
+          docker rmi $(docker images "ghcr.io/phm-oh/chatqa_frontend" -q) 2>/dev/null || true
+          
+          # ⭐ Pull latest images
+          echo "🔽 Pulling latest images..."
+          docker-compose -f docker-compose.prod.yml pull --no-parallel
+          
+          # ⭐ Start services (force recreate)
+          echo "🚀 Starting services..."
+          docker-compose -f docker-compose.prod.yml up -d --force-recreate
+          
+          # ⭐ Wait for services to be ready
+          echo "⏳ Waiting for services..."
+          sleep 15
           
           echo "✅ Frontend deployed successfully!"
           echo "📊 Container Status:"
-          docker ps --filter "name=chatqa-frontend" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
           
           echo "🌐 Application URL: http://49.231.145.165"
+          
+          # ⭐ Health check
+          echo "🏥 Health Check:"
+          curl -f http://localhost:80 && echo "✅ Frontend OK" || echo "❌ Frontend Failed"
+          curl -f http://localhost:5555/api/health && echo "✅ Backend OK" || echo "❌ Backend Failed"
 
     # 3. Deployment Status
     - name: Deployment Status
