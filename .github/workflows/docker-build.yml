@@ -1,5 +1,5 @@
 # Path: frontend/.github/workflows/docker-build.yml
-# ไฟล์: docker-build.yml
+# ไฟล์: docker-build.yml (แก้แล้ว)
 
 name: Build and Push Frontend Docker Image
 
@@ -43,6 +43,7 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -50,7 +51,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          REACT_APP_API_URL=${{ vars.REACT_APP_API_URL || 'http://localhost:5555' }}
+          REACT_APP_API_URL=http://localhost:5555
           REACT_APP_ENV=production
           REACT_APP_APP_NAME=ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี
 
