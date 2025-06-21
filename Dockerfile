@@ -1,25 +1,36 @@
-# Frontend Dockerfile - Hash-based SPA
-# Stage 1: Build React App with Vite
+# Path: frontend/Dockerfile
+# ไฟล์: Dockerfile
 
+# Stage 1: Build React App with Vite
 FROM node:18-alpine AS builder
 
-# Set working directory ใน container
+# Build arguments (รับจาก GitHub Actions)
+ARG REACT_APP_API_URL=http://localhost:5555
+ARG REACT_APP_ENV=production
+ARG REACT_APP_APP_NAME="ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี"
+
+# Set working directory
 WORKDIR /app
 
-# คัดลอก package files ก่อน (เพื่อ Docker layer caching)
+# Copy package files ก่อน (เพื่อ Docker layer caching)
 COPY package*.json ./
 
-# ติดตั้ง dependencies (รวม devDependencies เพื่อ build)
+# Install dependencies (รวม devDependencies เพื่อ build)
 RUN npm ci --silent
 
-# คัดลอกโค้ดทั้งหมดจาก local ไป /app ใน container
+# Copy source code
 COPY . .
 
-# Build React app ด้วย Vite (สร้าง dist/ folder)
-# ตาม "build" script ใน package.json = "vite build"
+# Set environment variables for build
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ENV REACT_APP_ENV=$REACT_APP_ENV
+ENV REACT_APP_APP_NAME=$REACT_APP_APP_NAME
+ENV REACT_APP_VERSION=1.0.0
+
+# Build React app ด้วย Vite (จะใช้ .env + build args)
 RUN npm run build
 
-# ตรวจสอบว่า build สำเร็จ
+# Verify build success
 RUN ls -la dist/ && test -f dist/index.html
 
 # Stage 2: Serve with Nginx
@@ -28,21 +39,21 @@ FROM nginx:alpine
 # Install curl for health checks
 RUN apk add --no-cache curl
 
-# คัดลอก nginx config ที่เราสร้างสำหรับ Hash-based SPA
+# Copy nginx config
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# คัดลอก built files จาก stage 1 ไป nginx serving directory
+# Copy built files from stage 1
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# ตรวจสอบว่าไฟล์คัดลอกถูกต้อง
+# Verify files copied correctly
 RUN ls -la /usr/share/nginx/html/ && test -f /usr/share/nginx/html/index.html
 
-# เปิด port 80 (nginx default)
+# Expose port 80 (nginx default)
 EXPOSE 80
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:80 || exit 1
 
-# รัน nginx (serve React static files)
+# Start nginx
 CMD ["nginx", "-g", "daemon off;"]
