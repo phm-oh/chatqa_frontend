@@ -1,7 +1,5 @@
 # Path: frontend/.github/workflows/docker-build.yml
-# ไฟล์: docker-build.yml (แก้แล้ว)
-
-name: Build and Push Frontend Docker Image
+name: Build and Auto Deploy Frontend
 
 on:
   push:
@@ -14,13 +12,14 @@ env:
   IMAGE_NAME: phm-oh/chatqa_frontend
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
+    # 1. Build และ Push Image
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -54,6 +53,45 @@ jobs:
           REACT_APP_API_URL=http://localhost:5555
           REACT_APP_ENV=production
           REACT_APP_APP_NAME=ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี
+
+    # 2. ⭐ Auto Deploy ไปยัง Production Server (เฉพาะ main branch)
+    - name: Deploy to Production Server
+      if: github.ref == 'refs/heads/main'
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          echo "🔄 Starting Frontend Deployment..."
+          
+          # Update chatqa-deploy repo
+          cd /home/oem/chatqa-deploy
+          echo "📡 Syncing deployment config from GitHub..."
+          git pull origin main
+          
+          # Deploy เฉพาะ frontend
+          echo "🔽 Pulling latest frontend image..."
+          docker-compose pull frontend
+          
+          echo "🚀 Restarting frontend service..."
+          docker-compose up -d frontend
+          
+          echo "✅ Frontend deployed successfully!"
+          echo "📊 Container Status:"
+          docker ps --filter "name=chatqa-frontend" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          
+          echo "🌐 Application URL: http://49.231.145.165"
+
+    # 3. Deployment Status
+    - name: Deployment Status
+      if: always() && github.ref == 'refs/heads/main'
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Frontend deployment completed successfully!"
+        else
+          echo "❌ Frontend deployment failed!"
+        fi
 
     - name: Image digest
       run: echo ${{ steps.build.outputs.digest }}
