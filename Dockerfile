@@ -5,7 +5,6 @@
 FROM node:18-alpine AS builder
 
 # Build arguments (รับจาก GitHub Actions)
-ARG REACT_APP_API_URL=http://localhost:5555
 ARG REACT_APP_ENV=production
 ARG REACT_APP_APP_NAME="ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี"
 
@@ -22,12 +21,11 @@ RUN npm ci --silent
 COPY . .
 
 # Set environment variables for build
-ENV REACT_APP_API_URL=$REACT_APP_API_URL
 ENV REACT_APP_ENV=$REACT_APP_ENV
 ENV REACT_APP_APP_NAME=$REACT_APP_APP_NAME
 ENV REACT_APP_VERSION=1.0.0
 
-# Build React app ด้วย Vite (จะใช้ .env + build args)
+# Build React app ด้วย Vite (ใช้ relative path ใน code)
 RUN npm run build
 
 # Verify build success
