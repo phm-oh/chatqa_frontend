@@ -100,9 +100,9 @@ export const DATE_FORMATS = {
   API_WITH_TIME: 'YYYY-MM-DDTHH:mm:ss.SSSZ'
 };
 
-// API endpoints
+// ⭐ API endpoints - เปลี่ยนเป็น relative path
 export const API_ENDPOINTS = {
-  BASE: 'http://localhost:5555/api',
+  BASE: '/api',  // แทนที่จะเป็น 'http://localhost:5555/api'
   QUESTIONS: '/questions',
   FAQ: '/faq',
   HEALTH: '/health'

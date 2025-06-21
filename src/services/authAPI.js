@@ -1,9 +1,10 @@
-// src/services/authAPI.js - แก้ให้รองรับ response structure ที่ถูกต้อง
+// src/services/authAPI.js - แก้ให้ใช้ relative path
 import { API_ENDPOINTS, ERROR_MESSAGES } from '../utils/constants';
 import { errorUtils } from '../utils/helpers';
 
-// Base API configuration
-const API_BASE = API_ENDPOINTS.BASE || 'http://localhost:5555/api';
+// ⭐ Base API configuration - ใช้ relative path โดยตรง
+const API_BASE = '/api';  // แทนที่ API_ENDPOINTS.BASE || 'http://localhost:5555/api'
+
 const AUTH_ENDPOINTS = {
   LOGIN: `${API_BASE}/admin/login`,
   LOGOUT: `${API_BASE}/admin/logout`,

@@ -1,6 +1,7 @@
 // Path: src/utils/api.js หรือ src/services/api.js - ไฟล์สมบูรณ์
 
-const API_BASE_URL = 'http://localhost:5555/api';
+// const API_BASE_URL = 'http://localhost:5555/api';
+const API_BASE_URL = '/api';
 
 // Response wrapper utility
 const handleResponse = async (response) => {
