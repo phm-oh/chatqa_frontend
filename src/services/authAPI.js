@@ -3,7 +3,7 @@ import { API_ENDPOINTS, ERROR_MESSAGES } from '../utils/constants';
 import { errorUtils } from '../utils/helpers';
 
 // Base API configuration
-const API_BASE = API_ENDPOINTS.BASE || 'http://localhost:5000/api';
+const API_BASE = API_ENDPOINTS.BASE || 'http://localhost:5555/api';
 const AUTH_ENDPOINTS = {
   LOGIN: `${API_BASE}/admin/login`,
   LOGOUT: `${API_BASE}/admin/logout`,

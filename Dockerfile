@@ -1,7 +1,7 @@
 # Frontend Dockerfile - Hash-based SPA
 # Stage 1: Build React App with Vite
 
-FROM node:18-alpine as builder
+FROM node:18-alpine AS builder
 
 # Set working directory ใน container
 WORKDIR /app

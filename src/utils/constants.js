@@ -102,7 +102,7 @@ export const DATE_FORMATS = {
 
 // API endpoints
 export const API_ENDPOINTS = {
-  BASE: 'http://localhost:5000/api',
+  BASE: 'http://localhost:5555/api',
   QUESTIONS: '/questions',
   FAQ: '/faq',
   HEALTH: '/health'
