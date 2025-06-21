@@ -40,6 +40,7 @@ const AppContent = () => {
   useEffect(() => {
     initializeApp();
     setupNetworkListeners();
+    console.log("Testing auto deploy v2");
     
     return () => {
       // Cleanup
