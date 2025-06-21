@@ -41,16 +41,18 @@ jobs:
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
 
+    # ⭐ แก้ Build Step ให้ถูกต้อง
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
       with:
         context: .
+        file: ./Dockerfile
         push: true
+        no-cache: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          REACT_APP_API_URL=http://localhost:5555
           REACT_APP_ENV=production
           REACT_APP_APP_NAME=ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี
 
