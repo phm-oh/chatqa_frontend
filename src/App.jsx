@@ -41,6 +41,7 @@ const AppContent = () => {
     initializeApp();
     setupNetworkListeners();
     console.log("Testing auto deploy v2");
+    console.log("Testing auto deploy v3");
     
     return () => {
       // Cleanup
