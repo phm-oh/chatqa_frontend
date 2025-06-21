@@ -42,7 +42,6 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
           type=raw,value={{date 'YYYYMMDD-HHmmss'}},enable={{is_default_branch}}
 
-    # ⭐ Build แล้ว force ไม่ใช้ cache + unique tag
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
@@ -58,7 +57,7 @@ jobs:
           REACT_APP_APP_NAME=ระบบ ChatQ&A วิทยาลัยอาชีวศึกษาอุดรธานี
           BUILD_TIME=${{ github.run_number }}
 
-    # 2. ⭐ แก้ไข Deploy Script ให้ restart อย่างถูกต้อง
+    # 2. ⭐ Safe Deploy - ไม่ลบ Portainer!
     - name: Deploy to Production Server
       if: github.ref == 'refs/heads/main'
       uses: appleboy/ssh-action@v1.0.0
@@ -67,53 +66,72 @@ jobs:
         username: ${{ secrets.PROD_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
         script: |
-          echo "🔄 Starting Frontend Deployment..."
+          echo "🔄 Starting Safe Frontend Deployment..."
           
           # Update chatqa-deploy repo
           cd /home/oem/chatqa-deploy
           echo "📡 Syncing deployment config from GitHub..."
           git pull origin main
           
-          # ⭐ หยุด containers ก่อน (แก้ conflict)
-          echo "🛑 Stopping existing containers..."
-          docker-compose -f docker-compose.prod.yml down
+          # ⭐ Safe cleanup - ลบเฉพาะ ChatQA containers
+          echo "🛑 Safe cleanup - ลบเฉพาะ ChatQA containers..."
+          docker stop chatqa-frontend chatqa-backend 2>/dev/null || true
+          docker rm -f chatqa-frontend chatqa-backend 2>/dev/null || true
+          docker rm -f $(docker ps -aq --filter "name=chatqa") 2>/dev/null || true
           
-          # ⭐ ลบ old images เพื่อให้แน่ใจว่าจะ pull ใหม่
-          echo "🗑️ Cleaning old images..."
-          docker image prune -f
+          # ลบเฉพาะ ChatQA network
+          docker network rm chatqa-deploy_chatqa-network 2>/dev/null || true
+          
+          # ลบเฉพาะ ChatQA images
+          echo "🗑️ ลบ ChatQA images เก่า..."
           docker rmi $(docker images "ghcr.io/phm-oh/chatqa_frontend" -q) 2>/dev/null || true
+          docker rmi $(docker images "ghcr.io/phm-oh/chatqa_backend" -q) 2>/dev/null || true
           
-          # ⭐ Pull latest images
-          echo "🔽 Pulling latest images..."
-          docker-compose -f docker-compose.prod.yml pull --no-parallel
+          # ตรวจสอบว่า Portainer ยังอยู่
+          if docker ps | grep -q portainer; then
+            echo "✅ Portainer ยังทำงานอยู่"
+          else
+            echo "⚠️ Portainer หายไป - เริ่มใหม่..."
+            docker run -d --name portainer --restart=always \
+              -p 9000:9000 -p 9443:9443 \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v portainer_data:/data \
+              portainer/portainer-ce:latest
+          fi
           
-          # ⭐ Start services (force recreate)
-          echo "🚀 Starting services..."
+          # Pull และ start ChatQA services
+          echo "🔽 Pulling latest ChatQA images..."
+          docker-compose -f docker-compose.prod.yml pull
+          
+          echo "🚀 Starting ChatQA services..."
           docker-compose -f docker-compose.prod.yml up -d --force-recreate
           
-          # ⭐ Wait for services to be ready
-          echo "⏳ Waiting for services..."
-          sleep 15
+          # รอให้ services พร้อม
+          echo "⏳ รอให้ services พร้อม..."
+          sleep 20
           
-          echo "✅ Frontend deployed successfully!"
+          echo "✅ Safe deployment completed!"
           echo "📊 Container Status:"
           docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
           
-          echo "🌐 Application URL: http://49.231.145.165"
+          echo "🌐 URLs:"
+          echo "  Frontend:  http://49.231.145.165"
+          echo "  Backend:   http://49.231.145.165:5555"
+          echo "  Portainer: http://49.231.145.165:9000"
           
-          # ⭐ Health check
+          # Health checks
           echo "🏥 Health Check:"
           curl -f http://localhost:80 && echo "✅ Frontend OK" || echo "❌ Frontend Failed"
           curl -f http://localhost:5555/api/health && echo "✅ Backend OK" || echo "❌ Backend Failed"
+          curl -f http://localhost:9000 && echo "✅ Portainer OK" || echo "❌ Portainer Failed"
 
-    # 3. Deployment Status
     - name: Deployment Status
       if: always() && github.ref == 'refs/heads/main'
       run: |
         if [ ${{ job.status }} == 'success' ]; then
-          echo "✅ Frontend deployment completed successfully!"
+          echo "✅ Safe deployment completed successfully!"
         else
-          echo "❌ Frontend deployment failed!"
+          echo "❌ Safe deployment failed!"
         fi
 
     - name: Image digest
